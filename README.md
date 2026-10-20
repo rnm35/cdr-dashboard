@@ -2,7 +2,7 @@
 
 Week 2 internship assignment: an analytics dashboard for Call Data Records (CDR). It fetches call records from a mock CDR API and turns them into summary metrics, charts and a searchable call log.
 
-**Live dashboard:** vercel
+**Live dashboard:** cdr-dashboard-alpha.vercel.app
 
 ## Features
 
@@ -64,7 +64,3 @@ src/
 ## Screenshots
 
 ![Dashboard overview](docs/overview.png)
-
-## Deployment
-
-Deployed on [Vercel](https://vercel.com/) from the GitHub repository. Vercel detects Vite automatically: build command `npm run build`, output directory `dist`.
