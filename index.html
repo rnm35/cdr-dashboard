@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Call data record analytics dashboard built with React, Tailwind CSS, shadcn/ui and Recharts." />
+    <title>Call Analytics | Manraj Sandhu</title>
+    <script>
+      // apply the saved theme before the page paints, so dark mode doesn't flash light first
+      try {
+        var saved = localStorage.getItem("dashboard-theme");
+        var dark = saved ? saved === "dark" : window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (dark) document.documentElement.classList.add("dark");
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
