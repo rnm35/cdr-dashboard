@@ -1,125 +1,132 @@
-import { useMemo, useState } from "react";
-import { Badge } from "@/components/ui/badge";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { api } from "@/lib/api";
 import { formatCurrency, formatDateTime, formatDuration, formatNumber } from "@/lib/format";
+import { toQueryString } from "@/lib/filters";
 
-const PAGE_SIZE = 10;
+const PAGE_SIZE = 20;
 
-export function CallLogTable({ calls }) {
-  const [query, setQuery] = useState("");
-  const [page, setPage] = useState(0);
+const COLUMNS = [
+  { key: "callerName", label: "Caller Name", sortable: true },
+  { key: "callerNumber", label: "Caller Number" },
+  { key: "receiverNumber", label: "Receiver Number" },
+  { key: "city", label: "City", sortable: true },
+  { key: "duration", label: "Duration", sortable: true, align: "right" },
+  { key: "cost", label: "Cost", sortable: true, align: "right" },
+  { key: "startTime", label: "Start Time", sortable: true },
+];
 
-  // Most recent calls first
-  const sorted = useMemo(() => [...calls].sort((a, b) => b.start - a.start), [calls]);
+// server-side paging, sorting and filtering
+export function CallLogTable({ filters }) {
+  const filterQuery = toQueryString(filters);
+  const [sort, setSort] = useState({ key: "startTime", order: "desc" });
+  // back to page 1 when the filters change
+  const [pageState, setPageState] = useState({ filterQuery, page: 1 });
+  const page = pageState.filterQuery === filterQuery ? pageState.page : 1;
+  const setPage = (next) => setPageState({ filterQuery, page: next });
 
-  const filtered = useMemo(() => {
-    const term = query.trim().toLowerCase();
-    if (!term) return sorted;
-    return sorted.filter((call) =>
-      [call.callerName, call.callerNumber, call.receiverNumber, call.city].some((field) =>
-        field.toLowerCase().includes(term)
-      )
+  const [result, setResult] = useState({ data: [], pagination: null, status: "loading", error: null });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setResult((current) => ({ ...current, status: "loading", error: null }));
+    const query = toQueryString(filters, { page, limit: PAGE_SIZE, sort: sort.key, order: sort.order });
+    api
+      .calls(query, controller.signal)
+      .then(({ data, pagination }) => setResult({ data, pagination, status: "ready", error: null }))
+      .catch((error) => {
+        if (error.name === "AbortError") return;
+        setResult((current) => ({ ...current, status: "error", error: error.message }));
+      });
+    return () => controller.abort();
+  }, [filterQuery, page, sort]);
+
+  function toggleSort(key) {
+    setSort((current) =>
+      current.key === key ? { key, order: current.order === "asc" ? "desc" : "asc" } : { key, order: key === "startTime" ? "desc" : "asc" }
     );
-  }, [sorted, query]);
+    setPage(1);
+  }
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const currentPage = Math.min(page, pageCount - 1);
-  const rows = filtered.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
-  const firstShown = filtered.length === 0 ? 0 : currentPage * PAGE_SIZE + 1;
-  const lastShown = currentPage * PAGE_SIZE + rows.length;
+  const { data, pagination, status, error } = result;
+  const totalItems = pagination?.totalItems ?? 0;
+  const totalPages = pagination?.totalPages ?? 1;
+  const firstShown = totalItems === 0 ? 0 : (page - 1) * PAGE_SIZE + 1;
+  const lastShown = (page - 1) * PAGE_SIZE + data.length;
 
   return (
-    <Card>
-      <CardHeader className="flex-row flex-wrap items-end justify-between gap-3">
-        <div className="space-y-1">
-          <CardTitle>Recent call logs</CardTitle>
-          <CardDescription>Every call record, newest first</CardDescription>
-        </div>
-        <label className="w-full sm:w-64">
-          <span className="sr-only">Search calls</span>
-          <Input
-            id="call-search"
-            type="search"
-            placeholder="Search name, number or city"
-            value={query}
-            onChange={(event) => {
-              setQuery(event.target.value);
-              setPage(0);
-            }}
-          />
-        </label>
-      </CardHeader>
-      <CardContent className="px-0 sm:px-5">
+    <div>
+      {status === "error" && (
+        <p role="alert" className="mb-4 border border-destructive/40 px-4 py-2 text-sm text-destructive">
+          Couldn't load call records: {error}
+        </p>
+      )}
+      <div className={status === "loading" && pagination ? "opacity-60 transition-opacity" : undefined} aria-busy={status === "loading"}>
         <Table>
           <TableHeader>
             <TableRow className="hover:bg-transparent">
-              <TableHead>Caller Name</TableHead>
-              <TableHead>Caller Number</TableHead>
-              <TableHead>Receiver Number</TableHead>
-              <TableHead>City</TableHead>
-              <TableHead className="text-right">Duration</TableHead>
-              <TableHead className="text-right">Cost</TableHead>
-              <TableHead>Start Time</TableHead>
-              <TableHead>Status</TableHead>
+              {COLUMNS.map((column) => {
+                const active = sort.key === column.key;
+                return (
+                  <TableHead
+                    key={column.key}
+                    className={column.align === "right" ? "text-right" : undefined}
+                    aria-sort={active ? (sort.order === "asc" ? "ascending" : "descending") : undefined}
+                  >
+                    {column.sortable ? (
+                      <button type="button" onClick={() => toggleSort(column.key)}
+                        className="inline-flex items-center gap-1 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                        {column.label}
+                        <span aria-hidden="true" className="text-xs">{active ? (sort.order === "asc" ? "▲" : "▼") : ""}</span>
+                      </button>
+                    ) : (
+                      column.label
+                    )}
+                  </TableHead>
+                );
+              })}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.length === 0 ? (
+            {data.length === 0 ? (
               <TableRow className="hover:bg-transparent">
-                <TableCell colSpan={8} className="py-8 text-center text-muted-foreground">
-                  No calls match "{query}".
+                <TableCell colSpan={COLUMNS.length} className="py-8 text-center text-muted-foreground">
+                  {status === "loading" ? "Loading calls..." : "No calls match these filters."}
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((call) => (
+              data.map((call) => (
                 <TableRow key={call.id}>
                   <TableCell className="font-medium">{call.callerName}</TableCell>
                   <TableCell className="tabular-nums">{call.callerNumber}</TableCell>
                   <TableCell className="tabular-nums">{call.receiverNumber}</TableCell>
                   <TableCell>{call.city}</TableCell>
-                  <TableCell className="text-right tabular-nums">{formatDuration(call.duration)}</TableCell>
+                  <TableCell className="text-right tabular-nums">{formatDuration(call.durationSeconds)}</TableCell>
                   <TableCell className="text-right tabular-nums">{formatCurrency(call.cost)}</TableCell>
-                  <TableCell className="tabular-nums">{formatDateTime(call.start)}</TableCell>
-                  <TableCell>
-                    <Badge variant={call.successful ? "success" : "destructive"}>
-                      {call.successful ? "Successful" : "Failed"}
-                    </Badge>
-                  </TableCell>
+                  <TableCell className="tabular-nums">{formatDateTime(call.startTime)}</TableCell>
                 </TableRow>
               ))
             )}
           </TableBody>
         </Table>
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 px-5 text-sm text-muted-foreground sm:px-0">
-          <p className="tabular-nums">
-            Showing {formatNumber(firstShown)} to {formatNumber(lastShown)} of {formatNumber(filtered.length)} calls
-          </p>
-          <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={currentPage === 0}
-              onClick={() => setPage(currentPage - 1)}
-            >
-              Previous
-            </Button>
-            <span className="tabular-nums">
-              Page {currentPage + 1} of {pageCount}
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={currentPage >= pageCount - 1}
-              onClick={() => setPage(currentPage + 1)}
-            >
-              Next
-            </Button>
-          </div>
+      </div>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+        <p className="tabular-nums">
+          Showing {formatNumber(firstShown)} to {formatNumber(lastShown)} of {formatNumber(totalItems)} calls
+        </p>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" disabled={page <= 1 || status === "loading"} onClick={() => setPage(page - 1)}>
+            Previous
+          </Button>
+          <span className="tabular-nums">
+            Page {formatNumber(page)} of {formatNumber(totalPages)}
+          </span>
+          <Button size="sm" variant="outline" disabled={page >= totalPages || status === "loading"} onClick={() => setPage(page + 1)}>
+            Next
+          </Button>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </div>
   );
 }

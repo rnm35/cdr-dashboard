@@ -12,4 +12,10 @@ export default defineConfig({
       "@": path.resolve(root, "src"),
     },
   },
+  server: {
+    // in development, /api requests go to the backend running locally
+    proxy: {
+      "/api": "http://localhost:4000",
+    },
+  },
 });
